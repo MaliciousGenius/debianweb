@@ -2,6 +2,8 @@
 
 Add "127.0.0.1    test1.local" & "127.0.0.1    test2.local" to /etc/hosts on host.
 
+Clone the repo and cd ./debianweb
+
 ```
 bash-3.2$ sudo vagrant destroy
 ==> default: VM not created. Moving on...
