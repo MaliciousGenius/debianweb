@@ -1,0 +1,13 @@
+<VirtualHost {{ item.ip }}:8080>
+    DocumentRoot /var/www/{{ item.name }}
+    DirectoryIndex index.php
+    <Directory /var/www/{{ item.name }}>
+        Options FollowSymLinks
+        AllowOverride All
+    </Directory>
+    ErrorLog /var/log/apache2/{{ item.name }}-error_log
+    CustomLog /var/log/apache2/{{ item.name }}-access_log common
+</VirtualHost>
+
+
+

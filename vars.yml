@@ -1,0 +1,16 @@
+---
+
+vhost_test1:
+  name: test1.local
+  ip: 192.168.13.1
+  dbname: test1
+  dbpass: Pa$$word
+
+vhost_test2:
+  name: test2.local
+  ip: 192.168.13.2
+  dbname: test2
+  dbpass: Pa$$word
+
+joomla_url: https://github.com/joomla/joomla-cms/releases/download/3.8.2/Joomla_3.8.2-Stable-Full_Package.tar.gz
+

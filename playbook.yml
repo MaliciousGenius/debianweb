@@ -1,0 +1,252 @@
+- hosts: all
+  sudo: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Common settings | Update system to latest
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Common settings | Debug tools
+      apt:
+        pkg: "{{ item }}"
+        state: present
+      with_items:
+        - net-tools
+        - curl
+        - mc
+
+    - name: Common settings | Network conf
+      shell: |
+        ip addr add "{{ vhost_test1.ip }}"/24 dev eth0
+        ip addr add "{{ vhost_test2.ip }}"/24 dev eth0
+
+    - name: Nginx | Adding signing key
+      apt_key:
+        url: http://nginx.org/keys/nginx_signing.key
+        state: present
+
+    - name: Nginx | Adding to sources.list repo url
+      become: true
+      apt_repository:
+        repo: "deb http://nginx.org/packages/debian/ stretch nginx"
+        state: present
+
+    - name: Nginx | Install package
+      apt:
+        pkg: nginx
+        update_cache: yes
+        state: latest
+
+      # to do fix
+    - name: Nginx | Stop services
+      service:
+        name: nginx
+        state: stopped
+
+    - name: Apache, PHP, MySQL | Adding dotdeb key
+      apt_key:
+        url: http://www.dotdeb.org/dotdeb.gpg
+
+    - name: Apache, PHP, MySQL | Adding to sources.list repo url
+      apt_repository:
+        repo: "deb http://packages.dotdeb.org stretch apache2 php mysql-server"
+        state: present
+
+    - name: Apache, PHP, MySQL | Install packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - apache2
+        - libapache2-mod-php
+        - php
+        - php-mysql
+        - php-xml
+        - php-fpm
+        - mysql-server
+        - python-mysqldb
+
+    - name: Joomla | Download distribution file
+      get_url:
+        url: "{{ joomla_url }}"
+        dest: /usr/src/joomla-latest.tar.gz
+
+    - name: Joomla | Make dir for vhost
+      file:
+        path: "/var/www/{{ item }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: 0770
+      with_items:
+        - "{{ vhost_test1.name }}"
+        - "{{ vhost_test2.name }}"
+
+    - name: Joomla | Unpack joomla distribution file
+      unarchive:
+        src: /usr/src/joomla-latest.tar.gz
+        dest: "/var/www/{{ item }}"
+        remote_src: yes
+      with_items:
+        - "{{ vhost_test1.name }}"
+        - "{{ vhost_test2.name }}"
+
+    - name: Joomla | Aceess to dir
+      file:
+        path: "/var/www/{{ item.name }}"
+        owner: www-data
+        group: www-data
+        mode: 0770
+        recurse: yes
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+
+    - name: Config | Clean default
+      file:
+        state: absent
+        path: "{{ item }}"
+      with_items:
+        - /var/www/html
+        - /etc/apache2/sites-enabled/000-default.conf
+        - /etc/apache2/sites-available/000-default.conf
+        - /etc/apache2/sites-available/default-ssl.conf
+        - /etc/php/7.0/fpm/pool.d/www.conf
+        - /etc/nginx/conf.d/default.conf
+
+    - name: Config | Fix hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "127.0.0.1    {{ item.name }}"
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+
+    - name: Config | Create users to vhost
+      user:
+        name: "{{ item.name }}"
+        comment: "vhost"
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+
+    - name: Config | Apache module install
+      apache2_module:
+        state: present
+        name: "{{ item }}"
+      with_items:
+        - proxy
+        - proxy_balancer
+        - proxy_http
+        - proxy_fcgi
+        - rewrite
+
+    - name: Config | Apache "memory limit" cange
+      lineinfile:
+        dest: /etc/php/7.0/apache2/php.ini
+        line: "memory_limit = 256M"
+        regexp: "^memory_limit*"
+
+    - name: Config | Apache add vhost
+      template:
+        src: apache.j2
+        dest: "/etc/apache2/sites-available/{{ item.name }}.conf"
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+      notify: apache2 reload
+
+    - name: Enable configuration
+      file:
+        src: "/etc/apache2/sites-available/{{ item.name }}.conf"
+        dest: "/etc/apache2/sites-enabled/{{ item.name }}.conf"
+        state: link
+        owner: root
+        group: root
+        mode: 0444
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+      notify: apache2 reload
+
+
+    - name: Config | Change default Apache port
+      lineinfile:
+        path: /etc/apache2/ports.conf
+        regexp: '^Listen 80'
+        line: "Listen 8080"
+      notify: apache2 reload
+
+    - name: Config | Add derictive to nginx.conf
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        insertbefore: 'include'
+        line: 'reset_timedout_connection on;'
+
+    - name: Config | Nginx runtime user
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: 'user  nginx;'
+        line: "user www-data;"
+      notify: apache2 reload
+
+
+    - name: Config | Nginx vhost conf
+      template:
+        src: nginx.j2
+        dest: "/etc/nginx/conf.d/{{ item.name }}.conf"
+        owner: nginx
+        group: nginx
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+      notify: nginx reload
+
+    - name: Config | fpm
+      template:
+        src: fpm.j2
+        dest: "/etc/php/7.0/fpm/pool.d/www_{{ item.name }}.conf"
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+      notify: fpm reload
+
+    - name: mysql | Create database
+      mysql_db:
+        name: "{{ item.dbname }}"
+        state: present
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+
+    - name: mysql | Add user and access
+      mysql_user:
+        name: "{{ item.dbname }}"
+        password: "{{ item.dbpass }}"
+        host: "%"
+        priv: "{{ item.dbname }}.*:ALL"
+        state: present
+      with_items:
+        - "{{ vhost_test1 }}"
+        - "{{ vhost_test2 }}"
+
+  handlers:
+    - name: apache2 reload
+      service:
+        name: apache2
+        state: restarted
+
+    - name: fpm reload
+      service:
+        name: php7.0-fpm
+        state: restarted
+
+    - name: nginx reload
+      service:
+        name: nginx
+        state: restarted
